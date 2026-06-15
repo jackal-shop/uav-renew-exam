@@ -153,6 +153,16 @@
   .opt.wrong .letter { border-color: var(--red); background: var(--red); color: #fff; }
   .opt:disabled, .opt[disabled] { cursor: default; }
 
+  .feedback {
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+  }
+  .feedback.correct { color: var(--green); background: var(--green-bg); }
+  .feedback.wrong { color: var(--red); background: var(--red-bg); }
+
   .btn {
     display: inline-block;
     background: var(--navy);
@@ -246,7 +256,9 @@
     <div class="q-meta" id="qMeta"></div>
     <p class="q-text" id="qText"></p>
     <div id="options"></div>
+    <div id="feedback" class="feedback hidden"></div>
     <div class="btn-row">
+      <button class="btn secondary" id="prevBtn" disabled>上一題</button>
       <button class="btn secondary" id="quitBtn">結束測驗</button>
       <button class="btn" id="nextBtn" disabled>下一題</button>
     </div>
@@ -330,9 +342,9 @@ function startQuiz(mode, count) {
 }
 
 function renderQuestion() {
-  answered = false;
-  selectedLetter = null;
   const q = queue[idx];
+  answered = !!q.userAnswer;
+  selectedLetter = q.userAnswer || null;
   document.getElementById('progressText').textContent = `第 ${idx + 1} / ${queue.length} 題　答對：${score}`;
   document.getElementById('progressFill').style.width = `${(idx / queue.length) * 100}%`;
   document.getElementById('qMeta').textContent = `題號 ${q.num}`;
@@ -348,17 +360,20 @@ function renderQuestion() {
     btn.addEventListener('click', () => selectAnswer(letter, btn));
     optionsEl.appendChild(btn);
   });
-  document.getElementById('nextBtn').disabled = true;
   document.getElementById('nextBtn').textContent = (idx === queue.length - 1) ? '查看結果' : '下一題';
+  document.getElementById('nextBtn').disabled = !answered;
+  document.getElementById('prevBtn').disabled = (idx === 0);
+
+  const fb = document.getElementById('feedback');
+  fb.className = 'feedback hidden';
+  fb.textContent = '';
+
+  if (answered) {
+    showAnswerFeedback(q, q.userAnswer);
+  }
 }
 
-function selectAnswer(letter, btnEl) {
-  if (answered) return;
-  answered = true;
-  selectedLetter = letter;
-  const q = queue[idx];
-  const wrongSet = getWrongSet();
-
+function showAnswerFeedback(q, letter) {
   const buttons = document.querySelectorAll('#options .opt');
   buttons.forEach((b, i) => {
     b.disabled = true;
@@ -366,6 +381,24 @@ function selectAnswer(letter, btnEl) {
     if (l === q.answer) b.classList.add('correct');
     if (l === letter && letter !== q.answer) b.classList.add('wrong');
   });
+
+  const fb = document.getElementById('feedback');
+  if (letter === q.answer) {
+    fb.className = 'feedback correct';
+    fb.textContent = '✅ 答對了！';
+  } else {
+    fb.className = 'feedback wrong';
+    fb.textContent = `❌ 答錯了，正確答案是 ${q.answer}. ${q.options[LETTERS.indexOf(q.answer)]}`;
+  }
+}
+
+function selectAnswer(letter, btnEl) {
+  if (answered) return;
+  answered = true;
+  selectedLetter = letter;
+  const q = queue[idx];
+  q.userAnswer = letter;
+  const wrongSet = getWrongSet();
 
   if (letter === q.answer) {
     score++;
@@ -375,7 +408,15 @@ function selectAnswer(letter, btnEl) {
     wrongSet.add(q.num);
   }
   saveWrongSet(wrongSet);
+
+  showAnswerFeedback(q, letter);
   document.getElementById('nextBtn').disabled = false;
+}
+
+function prevQuestion() {
+  if (idx === 0) return;
+  idx--;
+  renderQuestion();
 }
 
 function nextQuestion() {
@@ -433,6 +474,7 @@ document.getElementById('startRandom').addEventListener('click', () => {
 });
 document.getElementById('wrongModeBtn').addEventListener('click', () => startQuiz('wrong'));
 document.getElementById('nextBtn').addEventListener('click', nextQuestion);
+document.getElementById('prevBtn').addEventListener('click', prevQuestion);
 document.getElementById('quitBtn').addEventListener('click', () => {
   if (confirm('確定要結束本次測驗嗎？')) showResult();
 });
