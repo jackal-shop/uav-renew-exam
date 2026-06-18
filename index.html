@@ -47,6 +47,56 @@
   a.exam-link:hover { border-color: var(--navy); }
   a.exam-link b { display: block; color: var(--navy); font-size: 1.1rem; margin-bottom: 6px; }
   a.exam-link span { color: var(--gray); font-size: 0.9rem; }
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 16px;
+    color: var(--gray);
+    font-size: 0.82rem;
+  }
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e2e6f0;
+  }
+  a.import-link {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #f0f4ff;
+    border: 2px dashed #c0cce8;
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color .15s, background .15s;
+  }
+  a.import-link:hover { border-color: var(--navy); background: #e6ecfa; }
+  a.import-link .icon { font-size: 1.6rem; flex: none; }
+  a.import-link b { display: block; color: var(--navy); font-size: 1rem; margin-bottom: 3px; }
+  a.import-link span { color: var(--gray); font-size: 0.85rem; }
+  #customBanks { margin-bottom: 8px; }
+  a.custom-bank-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card);
+    border: 2px solid #e2e6f0;
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    text-decoration: none;
+    color: inherit;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    transition: border-color .15s;
+  }
+  a.custom-bank-link:hover { border-color: var(--navy); }
+  a.custom-bank-link .info b { display: block; color: var(--navy); font-size: 1rem; margin-bottom: 3px; }
+  a.custom-bank-link .info span { color: var(--gray); font-size: 0.85rem; }
+  a.custom-bank-link .arrow { color: var(--gray); font-size: 1.2rem; }
   footer { text-align: center; color: var(--gray); font-size: 0.75rem; padding: 16px; }
 </style>
 </head>
@@ -64,7 +114,42 @@
     <b>🔄 專業操作證屆期換證學科測驗</b>
     <span>共 324 題，適合證照到期換證複習</span>
   </a>
+
+  <div class="divider">自訂題庫</div>
+
+  <div id="customBanks"></div>
+
+  <a class="import-link" href="import/">
+    <span class="icon">📂</span>
+    <div>
+      <b>匯入自訂題庫</b>
+      <span>上傳 JSON、Excel、PDF 或 Word，AI 自動解析並建立測驗</span>
+    </div>
+  </a>
 </main>
 <footer>正式答案請以交通部民用航空局公告為準</footer>
+
+<script>
+function loadCustomBanks() {
+  let banks = [];
+  try { banks = JSON.parse(localStorage.getItem('quiz_custom_banks') || '[]'); } catch {}
+  const container = document.getElementById('customBanks');
+  container.innerHTML = '';
+  banks.slice().reverse().forEach(bank => {
+    const a = document.createElement('a');
+    a.className = 'custom-bank-link';
+    a.href = `custom/?id=${bank.id}`;
+    a.innerHTML = `
+      <div class="info">
+        <b>📋 ${bank.name}</b>
+        <span>共 ${bank.questions.length} 題</span>
+      </div>
+      <span class="arrow">›</span>
+    `;
+    container.appendChild(a);
+  });
+}
+loadCustomBanks();
+</script>
 </body>
 </html>

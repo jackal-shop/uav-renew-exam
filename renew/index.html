@@ -220,6 +220,37 @@
   .review-item .ra { color: var(--green); font-weight: 700; }
 
   .hidden { display: none !important; }
+
+  .ai-btn {
+    display: block;
+    width: 100%;
+    background: #0f172a;
+    color: #7dd3fc;
+    border: 1.5px solid #334155;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    text-align: left;
+    transition: background .15s, border-color .15s;
+  }
+  .ai-btn:hover { background: #1e293b; border-color: #7dd3fc; }
+  .ai-btn:disabled { opacity: 0.5; cursor: default; }
+  .ai-panel {
+    background: #0f172a;
+    color: #e2e8f0;
+    border: 1.5px solid #334155;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 8px;
+    font-size: 0.92rem;
+    line-height: 1.8;
+    white-space: pre-wrap;
+  }
+  .ai-loading { color: #94a3b8; font-style: italic; }
+
   footer {
     text-align: center;
     color: var(--gray);
@@ -273,6 +304,11 @@
     <p class="q-text" id="qText"></p>
     <div id="options"></div>
     <div id="feedback" class="feedback hidden"></div>
+    <button class="ai-btn hidden" id="aiBtn">🤖 AI 解析這題</button>
+    <div id="aiPanel" class="ai-panel hidden">
+      <div class="ai-loading" id="aiLoading">AI 思考中⋯</div>
+      <div id="aiText"></div>
+    </div>
     <div class="btn-row">
       <button class="btn secondary" id="prevBtn" disabled>上一題</button>
       <button class="btn secondary" id="quitBtn">結束測驗</button>
@@ -359,6 +395,12 @@ function startQuiz(mode, count) {
 }
 
 function renderQuestion() {
+  document.getElementById('aiBtn').classList.add('hidden');
+  document.getElementById('aiPanel').classList.add('hidden');
+  document.getElementById('aiText').textContent = '';
+  document.getElementById('aiBtn').disabled = false;
+  document.getElementById('aiBtn').textContent = '🤖 AI 解析這題';
+
   const q = queue[idx];
   answered = !!q.userAnswer;
   selectedLetter = q.userAnswer || null;
@@ -407,6 +449,7 @@ function showAnswerFeedback(q, letter) {
     fb.className = 'feedback wrong';
     fb.textContent = `❌ 答錯了，正確答案是 ${q.answer}. ${q.options[LETTERS.indexOf(q.answer)]}`;
   }
+  document.getElementById('aiBtn').classList.remove('hidden');
 }
 
 function selectAnswer(letter, btnEl) {
@@ -525,6 +568,43 @@ fetch('questions.json')
     document.getElementById('home').innerHTML = '<p>題庫載入失敗，請重新整理頁面。</p>';
     console.error(err);
   });
+
+const API_BASE = 'https://post-generator-roan.vercel.app';
+
+document.getElementById('aiBtn').addEventListener('click', async () => {
+  const q = queue[idx];
+  const aiBtn = document.getElementById('aiBtn');
+  const aiPanel = document.getElementById('aiPanel');
+  const aiLoading = document.getElementById('aiLoading');
+  const aiText = document.getElementById('aiText');
+
+  aiPanel.classList.remove('hidden');
+  aiLoading.classList.remove('hidden');
+  aiText.textContent = '';
+  aiBtn.disabled = true;
+  aiBtn.textContent = '⏳ AI 解析中…';
+
+  try {
+    const res = await fetch(`${API_BASE}/api/quiz/explain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: q.q,
+        options: q.options,
+        answer: q.answer,
+        chapter: q.chapter || ''
+      })
+    });
+    const data = await res.json();
+    aiLoading.classList.add('hidden');
+    aiText.textContent = data.explanation || `⚠️ ${data.error || 'AI 解析失敗'}`;
+  } catch {
+    aiLoading.classList.add('hidden');
+    aiText.textContent = '⚠️ 無法連線到 AI 服務，請確認網路連線後再試';
+  }
+  aiBtn.disabled = false;
+  aiBtn.textContent = '🤖 AI 解析這題';
+});
 </script>
 </body>
 </html>

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>匯入自訂題庫 — 遙控無人機測驗</title>
+<style>
+  :root {
+    --navy: #002060;
+    --navy-light: #1a3a7a;
+    --bg: #f4f6fb;
+    --card: #ffffff;
+    --green: #1e7e34;
+    --green-bg: #e6f4ea;
+    --red: #b00020;
+    --red-bg: #fdecec;
+    --gray: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: #1f2530;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  header {
+    width: 100%;
+    background: var(--navy);
+    color: #fff;
+    padding: 18px 16px;
+    text-align: center;
+  }
+  header h1 { margin: 0; font-size: 1.15rem; font-weight: 700; }
+  header p { margin: 4px 0 0; font-size: 0.8rem; color: #c9d4ef; }
+  header a.back {
+    display: inline-block;
+    margin-bottom: 6px;
+    color: #c9d4ef;
+    font-size: 0.8rem;
+    text-decoration: none;
+  }
+  main { width: 100%; max-width: 640px; padding: 16px; flex: 1; }
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  h2 { margin: 0 0 14px; font-size: 1.05rem; color: var(--navy); }
+  .drop-zone {
+    border: 2px dashed #c9d0e3;
+    border-radius: 12px;
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    margin-bottom: 16px;
+  }
+  .drop-zone.drag-over {
+    border-color: var(--navy);
+    background: #eef1fb;
+  }
+  .drop-zone p { color: var(--gray); margin: 0 0 12px; font-size: 0.95rem; }
+  .drop-zone .file-name {
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 1rem;
+    margin-top: 8px;
+  }
+  .format-hint {
+    background: #f8f9fc;
+    border: 1px solid #e2e6f0;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.85rem;
+    color: var(--gray);
+  }
+  .format-hint strong { color: #1f2530; }
+  .format-hint ul { margin: 6px 0 0; padding-left: 18px; }
+  .format-hint li { margin-bottom: 4px; }
+  .format-hint code {
+    background: #e8ecf5;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: monospace;
+    font-size: 0.82rem;
+    color: var(--navy);
+  }
+  .btn {
+    display: inline-block;
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 22px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    text-decoration: none;
+  }
+  .btn.secondary {
+    background: #fff;
+    color: var(--navy);
+    border: 2px solid var(--navy);
+  }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-row { display: flex; gap: 10px; margin-top: 14px; }
+  .btn-row .btn { flex: 1; }
+  .file-btn {
+    display: inline-block;
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .loading-state {
+    text-align: center;
+    padding: 20px 0;
+  }
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e2e6f0;
+    border-top-color: var(--navy);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-state p { color: var(--gray); margin: 0; font-size: 0.95rem; }
+  .preview-item {
+    border: 1px solid #e2e6f0;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+  }
+  .preview-item .q-num { color: var(--gray); font-size: 0.8rem; margin-bottom: 4px; }
+  .preview-item .q-text { font-weight: 600; margin-bottom: 6px; }
+  .preview-item .q-opts { color: var(--gray); font-size: 0.85rem; }
+  .preview-item .q-ans { color: var(--green); font-weight: 700; font-size: 0.85rem; margin-top: 4px; }
+  .preview-more { text-align: center; color: var(--gray); font-size: 0.85rem; padding: 8px; }
+  .stats { color: var(--navy); font-weight: 700; margin-bottom: 14px; }
+  .name-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .name-row label { font-size: 0.9rem; font-weight: 600; }
+  .name-row input {
+    padding: 10px 12px;
+    border: 1.5px solid #d3d9e8;
+    border-radius: 8px;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .name-row input:focus { border-color: var(--navy); }
+  .error-box {
+    background: var(--red-bg);
+    color: var(--red);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+  }
+  .hidden { display: none !important; }
+  footer { text-align: center; color: var(--gray); font-size: 0.75rem; padding: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="../">← 回題庫首頁</a>
+  <h1>匯入自訂題庫</h1>
+  <p>上傳 JSON、Excel、PDF 或 Word 檔案，自動建立測驗</p>
+</header>
+
+<main>
+  <!-- Step 1: 選擇檔案 -->
+  <section id="step1" class="card">
+    <h2>選擇題庫檔案</h2>
+    <div class="drop-zone" id="dropZone">
+      <p>拖曳檔案到這裡，或點擊選擇</p>
+      <label class="file-btn" for="fileInput">選擇檔案</label>
+      <input type="file" id="fileInput" accept=".json,.xlsx,.xls,.pdf,.docx" style="display:none">
+      <div class="file-name hidden" id="fileName"></div>
+    </div>
+    <div class="format-hint">
+      <strong>支援格式</strong>
+      <ul>
+        <li><strong>JSON</strong>：相容現有題庫格式（<code>num, q, options, answer</code>）</li>
+        <li><strong>Excel（.xlsx）</strong>：第一列為標題，欄位依序為：<code>題號 / 章節 / 題目 / 選項A / 選項B / 選項C / 選項D / 正確答案</code></li>
+        <li><strong>PDF（.pdf）</strong>：AI 自動辨識題目結構，限 4MB 以下</li>
+        <li><strong>Word（.docx）</strong>：AI 自動辨識題目結構</li>
+      </ul>
+    </div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn" id="parseBtn" disabled>開始解析 →</button>
+    </div>
+  </section>
+
+  <!-- Step 2: 解析中 -->
+  <section id="step2" class="card hidden">
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p id="processingText">正在解析題庫…</p>
+    </div>
+  </section>
+
+  <!-- Step 3: 預覽 + 儲存 -->
+  <section id="step3" class="card hidden">
+    <h2>預覽題庫</h2>
+    <div id="errorBox" class="error-box hidden"></div>
+    <p class="stats" id="statsText"></p>
+    <div id="previewList"></div>
+    <div class="name-row">
+      <label for="bankName">題庫名稱</label>
+      <input type="text" id="bankName" placeholder="例：換證複習題庫 2026">
+    </div>
+    <div class="btn-row">
+      <button class="btn secondary" id="reuploadBtn">重新上傳</button>
+      <button class="btn" id="saveBtn">儲存並開始練習 →</button>
+    </div>
+  </section>
+</main>
+
+<footer>自訂題庫儲存於本機瀏覽器（localStorage），清除瀏覽器資料時會一併移除</footer>
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+<script>
+const API_BASE = 'https://post-generator-roan.vercel.app';
+const LETTERS = ['A', 'B', 'C', 'D'];
+
+let parsedQuestions = [];
+let selectedFile = null;
+
+// ── 檔案選擇 ──
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const parseBtn = document.getElementById('parseBtn');
+const fileNameEl = document.getElementById('fileName');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) setFile(file);
+});
+dropZone.addEventListener('click', e => {
+  if (e.target !== fileInput && !e.target.classList.contains('file-btn')) fileInput.click();
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) setFile(fileInput.files[0]);
+});
+
+function setFile(file) {
+  selectedFile = file;
+  fileNameEl.textContent = `✓ ${file.name}（${(file.size / 1024).toFixed(0)} KB）`;
+  fileNameEl.classList.remove('hidden');
+  parseBtn.disabled = false;
+}
+
+// ── 解析按鈕 ──
+parseBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  showSection('step2');
+  try {
+    parsedQuestions = await parseFile(selectedFile);
+    if (!parsedQuestions || parsedQuestions.length === 0) throw new Error('未能解析出任何題目，請確認檔案格式正確');
+    renderPreview();
+    showSection('step3');
+  } catch (err) {
+    showSection('step3');
+    document.getElementById('errorBox').textContent = `⚠️ ${err.message || '解析失敗'}`;
+    document.getElementById('errorBox').classList.remove('hidden');
+    document.getElementById('statsText').textContent = '';
+    document.getElementById('previewList').innerHTML = '';
+    document.getElementById('saveBtn').disabled = true;
+  }
+});
+
+// ── 各格式解析 ──
+async function parseFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (ext === 'json') {
+    return parseJson(await file.text());
+  }
+  if (ext === 'xlsx' || ext === 'xls') {
+    return parseXlsx(await file.arrayBuffer());
+  }
+  if (ext === 'docx') {
+    document.getElementById('processingText').textContent = 'AI 分析 Word 文件中…（約 10-20 秒）';
+    const text = await extractDocxText(file);
+    return await parseViaApi({ type: 'docx', text });
+  }
+  if (ext === 'pdf') {
+    document.getElementById('processingText').textContent = 'AI 分析 PDF 中…（約 10-20 秒）';
+    return await parsePdfViaApi(file);
+  }
+  throw new Error(`不支援 .${ext} 格式`);
+}
+
+function parseJson(text) {
+  const data = JSON.parse(text);
+  const arr = Array.isArray(data) ? data : data.questions || [];
+  return arr.filter(q => q.q && q.options && q.answer);
+}
+
+function parseXlsx(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  return rows.map((row, i) => {
+    const keys = Object.keys(row);
+    const find = (...names) => {
+      for (const name of names) {
+        const key = keys.find(k => k.replace(/\s/g,'').toLowerCase() === name.toLowerCase());
+        if (key !== undefined && String(row[key]).trim() !== '') return String(row[key]).trim();
+      }
+      return '';
+    };
+    const num = parseInt(find('題號','num','no','序號'), 10) || i + 1;
+    const chapter = find('章節','chapter','分類');
+    const q = find('題目','q','question','問題');
+    const optA = find('選項A','選項a','opta','a');
+    const optB = find('選項B','選項b','optb','b');
+    const optC = find('選項C','選項c','optc','c');
+    const optD = find('選項D','選項d','optd','d');
+    const answer = find('正確答案','答案','answer').toUpperCase();
+    const options = [optA, optB, optC, optD].filter(Boolean);
+    if (!q || !answer || options.length < 2) return null;
+    return { num, chapter, q, options, answer };
+  }).filter(Boolean);
+}
+
+async function extractDocxText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({ arrayBuffer });
+  return result.value;
+}
+
+async function parseViaApi(body) {
+  const res = await fetch(`${API_BASE}/api/quiz/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.questions;
+}
+
+async function parsePdfViaApi(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/quiz/parse`, {
+    method: 'POST',
+    body: formData
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.questions;
+}
+
+// ── 預覽 ──
+function renderPreview() {
+  const total = parsedQuestions.length;
+  document.getElementById('statsText').textContent = `共解析出 ${total} 題`;
+  document.getElementById('errorBox').classList.add('hidden');
+  document.getElementById('saveBtn').disabled = false;
+
+  const preview = parsedQuestions.slice(0, 5);
+  const listEl = document.getElementById('previewList');
+  listEl.innerHTML = '';
+
+  preview.forEach(q => {
+    const div = document.createElement('div');
+    div.className = 'preview-item';
+    div.innerHTML = `
+      <div class="q-num">題號 ${q.num}${q.chapter ? `　${q.chapter}` : ''}</div>
+      <div class="q-text">${q.q}</div>
+      <div class="q-opts">${q.options.map((o,i) => `${LETTERS[i]}. ${o}`).join('　')}</div>
+      <div class="q-ans">✓ 答案：${q.answer}</div>
+    `;
+    listEl.appendChild(div);
+  });
+
+  if (total > 5) {
+    const more = document.createElement('div');
+    more.className = 'preview-more';
+    more.textContent = `⋯ 另有 ${total - 5} 題未顯示`;
+    listEl.appendChild(more);
+  }
+
+  // 建議題庫名稱（用檔名去副檔名）
+  const suggestName = selectedFile.name.replace(/\.[^.]+$/, '');
+  document.getElementById('bankName').value = suggestName;
+}
+
+// ── 儲存 ──
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const name = document.getElementById('bankName').value.trim();
+  if (!name) {
+    document.getElementById('bankName').focus();
+    return;
+  }
+  const id = 'bank_' + Date.now();
+  const bank = { id, name, questions: parsedQuestions, createdAt: new Date().toISOString() };
+  const existing = getCustomBanks();
+  existing.push(bank);
+  localStorage.setItem('quiz_custom_banks', JSON.stringify(existing));
+  location.href = `../custom/?id=${id}`;
+});
+
+document.getElementById('reuploadBtn').addEventListener('click', () => {
+  parsedQuestions = [];
+  selectedFile = null;
+  fileInput.value = '';
+  fileNameEl.classList.add('hidden');
+  parseBtn.disabled = true;
+  showSection('step1');
+});
+
+function getCustomBanks() {
+  try { return JSON.parse(localStorage.getItem('quiz_custom_banks') || '[]'); }
+  catch { return []; }
+}
+
+function showSection(id) {
+  ['step1','step2','step3'].forEach(s => {
+    document.getElementById(s).classList.toggle('hidden', s !== id);
+  });
+}
+</script>
+</body>
+</html>
