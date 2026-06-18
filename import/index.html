@@ -202,7 +202,7 @@
       <ul>
         <li><strong>JSON</strong>：相容現有題庫格式（<code>num, q, options, answer</code>）</li>
         <li><strong>Excel（.xlsx）</strong>：AI 自動辨識欄位，不限格式</li>
-        <li><strong>PDF（.pdf）</strong>：AI 自動辨識題目結構，限 4MB 以下</li>
+        <li><strong>PDF（.pdf）</strong>：AI 自動辨識題目結構（文字型 PDF，掃描圖片版無法解析）</li>
         <li><strong>Word（.docx）</strong>：AI 自動辨識題目結構</li>
       </ul>
     </div>
@@ -350,15 +350,40 @@ async function parseViaApi(body) {
 }
 
 async function parsePdfViaApi(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch(`${API_BASE}/api/quiz/parse`, {
-    method: 'POST',
-    body: formData
+  // Step 1：客戶端用 pdf.js 抽文字（避免 Vercel 10 秒超時）
+  document.getElementById('processingText').textContent = 'PDF 文字提取中…';
+  await loadPdfJs();
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    document.getElementById('processingText').textContent = `PDF 文字提取中…（第 ${i} / ${pdf.numPages} 頁）`;
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join(' ');
+    fullText += `\n--- 第 ${i} 頁 ---\n${pageText}`;
+  }
+  if (fullText.trim().length < 30) {
+    throw new Error('PDF 文字提取失敗，此 PDF 可能是掃描圖片格式（非文字型），請轉成 Word 或 Excel 再試');
+  }
+  // Step 2：把純文字送 AI 解析
+  document.getElementById('processingText').textContent = 'AI 分析題目結構中…（約 10-20 秒）';
+  return await parseViaApi({ type: 'docx', text: fullText });
+}
+
+async function loadPdfJs() {
+  if (window.pdfjsLib) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve();
+    };
+    script.onerror = () => reject(new Error('pdf.js 載入失敗，請確認網路連線'));
+    document.head.appendChild(script);
   });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data.questions;
 }
 
 // ── 預覽 ──
