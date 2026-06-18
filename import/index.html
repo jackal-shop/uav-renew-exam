@@ -304,14 +304,14 @@ async function parseFile(file) {
     return parseJson(await file.text());
   }
   if (ext === 'xlsx' || ext === 'xls') {
-    document.getElementById('processingText').textContent = 'AI 分析 Excel 中…（約 10-20 秒）';
+    document.getElementById('processingText').textContent = 'Excel 讀取中…';
     const csvText = await xlsxToCsv(await file.arrayBuffer());
-    return await parseViaApi({ type: 'docx', text: csvText });
+    return await parseTextInChunks(csvText);
   }
   if (ext === 'docx') {
-    document.getElementById('processingText').textContent = 'AI 分析 Word 文件中…（約 10-20 秒）';
+    document.getElementById('processingText').textContent = 'Word 文字提取中…';
     const text = await extractDocxText(file);
-    return await parseViaApi({ type: 'docx', text });
+    return await parseTextInChunks(text);
   }
   if (ext === 'pdf') {
     document.getElementById('processingText').textContent = 'AI 分析 PDF 中…（約 10-20 秒）';
@@ -338,19 +338,46 @@ async function extractDocxText(file) {
   return result.value;
 }
 
+const CHUNK_SIZE = 12000; // Vercel Hobby 10 秒限制，每段不超過此字數
+
 async function parseViaApi(body) {
   const res = await fetch(`${API_BASE}/api/quiz/parse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`伺服器錯誤（${res.status}）：${text.slice(0, 100) || '請稍後重試'}`);
+  }
   const data = await res.json();
   if (data.error) throw new Error(data.error);
   return data.questions;
 }
 
+async function parseTextInChunks(fullText) {
+  // 超過 CHUNK_SIZE 就分段送 AI，合併結果
+  const chunks = [];
+  for (let i = 0; i < fullText.length; i += CHUNK_SIZE) {
+    chunks.push(fullText.slice(i, i + CHUNK_SIZE));
+  }
+  let allQuestions = [];
+  for (let i = 0; i < chunks.length; i++) {
+    document.getElementById('processingText').textContent =
+      `AI 分析中…（第 ${i + 1} / ${chunks.length} 段，共 ${chunks.length} 段）`;
+    const qs = await parseViaApi({ type: 'docx', text: chunks[i] });
+    if (Array.isArray(qs)) {
+      // 重新編題號避免重複
+      const offset = allQuestions.length;
+      qs.forEach((q, idx) => { q.num = offset + idx + 1; });
+      allQuestions = allQuestions.concat(qs);
+    }
+  }
+  return allQuestions;
+}
+
 async function parsePdfViaApi(file) {
-  // Step 1：客戶端用 pdf.js 抽文字（避免 Vercel 10 秒超時）
+  // Step 1：客戶端用 pdf.js 抽文字（避免 Vercel 超時）
   document.getElementById('processingText').textContent = 'PDF 文字提取中…';
   await loadPdfJs();
   const arrayBuffer = await file.arrayBuffer();
@@ -366,9 +393,8 @@ async function parsePdfViaApi(file) {
   if (fullText.trim().length < 30) {
     throw new Error('PDF 文字提取失敗，此 PDF 可能是掃描圖片格式（非文字型），請轉成 Word 或 Excel 再試');
   }
-  // Step 2：把純文字送 AI 解析
-  document.getElementById('processingText').textContent = 'AI 分析題目結構中…（約 10-20 秒）';
-  return await parseViaApi({ type: 'docx', text: fullText });
+  // Step 2：分段送 AI 解析（每段 12,000 字）
+  return await parseTextInChunks(fullText);
 }
 
 async function loadPdfJs() {

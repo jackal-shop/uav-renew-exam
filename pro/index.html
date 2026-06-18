@@ -294,6 +294,8 @@
       <span id="wrongCountText">只練習曾經答錯的題目</span>
     </button>
     <button class="clear-link" id="clearWrongBtn">清除錯題紀錄</button>
+    <div id="continueSessionWrap" class="hidden" style="margin-top:4px;"></div>
+    <button class="clear-link" id="clearAllBtn" style="display:none;">清除所有作答紀錄（含錯題本與進度）</button>
   </section>
 
   <!-- 測驗中 -->
@@ -471,6 +473,7 @@ function selectAnswer(letter, btnEl) {
 
   showAnswerFeedback(q, letter);
   document.getElementById('nextBtn').disabled = false;
+  saveSession();
 }
 
 function prevQuestion() {
@@ -490,6 +493,7 @@ function nextQuestion() {
 }
 
 function showResult() {
+  clearSession();
   showSection('result');
   document.getElementById('progressFill').style.width = '100%';
   document.getElementById('scoreBig').textContent = `${score} / ${queue.length}`;
@@ -558,11 +562,80 @@ document.getElementById('reviewWrongBtn').addEventListener('click', () => {
   renderQuestion();
 });
 
+// ── 測驗進度持久化 ──
+const SESSION_KEY = 'quiz_pro_session_v1';
+const SESSION_TTL = 48 * 60 * 60 * 1000; // 48 小時
+
+function saveSession() {
+  const session = {
+    queueNums: queue.map(q => q.num),
+    answers: Object.fromEntries(queue.filter(q => q.userAnswer).map(q => [q.num, q.userAnswer])),
+    idx,
+    score,
+    savedAt: Date.now()
+  };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function updateClearAllBtn() {
+  const hasWrong = getWrongSet().size > 0;
+  const hasSession = !!localStorage.getItem(SESSION_KEY);
+  document.getElementById('clearAllBtn').style.display = (hasWrong || hasSession) ? 'block' : 'none';
+}
+
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+  if (!confirm('確定要清除所有作答紀錄（錯題本 + 上次進度）嗎？')) return;
+  clearSession();
+  localStorage.removeItem(STORAGE_KEY);
+  document.getElementById('continueSessionWrap').classList.add('hidden');
+  document.getElementById('clearAllBtn').style.display = 'none';
+  updateWrongCountText();
+});
+
+function checkSavedSession() {
+  let session;
+  try { session = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch {}
+  if (!session || !session.queueNums || Date.now() - session.savedAt > SESSION_TTL) {
+    clearSession();
+    return;
+  }
+  const remaining = session.queueNums.length - session.idx;
+  if (remaining <= 0) { clearSession(); return; }
+
+  const elapsedMin = Math.round((Date.now() - session.savedAt) / 60000);
+  const timeText = elapsedMin < 1 ? '剛才' : `${elapsedMin} 分鐘前`;
+
+  const wrap = document.getElementById('continueSessionWrap');
+  wrap.classList.remove('hidden');
+  const btn = document.createElement('button');
+  btn.className = 'mode-btn';
+  btn.style.cssText = 'border-color:#1e7e34; margin-top:0;';
+  btn.innerHTML = `<b style="color:#1e7e34">⏩ 繼續上次測驗</b><span>${timeText}中斷，剩 ${remaining} 題，已答對 ${session.score} 題</span>`;
+  btn.addEventListener('click', () => {
+    const numMap = Object.fromEntries(allQuestions.map(q => [q.num, q]));
+    queue = session.queueNums.map(num => ({ ...numMap[num], userAnswer: session.answers[num] || null })).filter(Boolean);
+    idx = Math.min(session.idx, queue.length - 1);
+    score = session.score;
+    sessionWrong = queue.slice(0, idx).filter(q => q.userAnswer && q.userAnswer !== q.answer);
+    showSection('quiz');
+    renderQuestion();
+  });
+  wrap.innerHTML = '';
+  wrap.appendChild(btn);
+  updateClearAllBtn();
+}
+
 fetch('questions.json')
   .then(r => r.json())
   .then(data => {
     allQuestions = data;
     updateWrongCountText();
+    checkSavedSession();
+    updateClearAllBtn();
   })
   .catch(err => {
     document.getElementById('home').innerHTML = '<p>題庫載入失敗，請重新整理頁面。</p>';
