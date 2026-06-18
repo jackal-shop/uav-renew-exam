@@ -421,21 +421,36 @@ async function parseWithGemini(text) {
   const key = getGeminiKey();
   if (!key) throw new Error('請先在上方設定 Gemini API Key（免費），才能解析此格式');
   const prompt = AI_EXTRACT_PROMPT + text;
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${key}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    }
-  );
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || `Gemini API 錯誤 (${res.status})`);
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!rawText) throw new Error('Gemini 未回傳內容，請確認 API Key 正確');
-  const match = rawText.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error('AI 無法從文件中辨識出題目結構，請確認格式正確');
-  return JSON.parse(match[0]);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2 分鐘上限
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { thinkingConfig: { thinkingBudget: 0 } }
+        }),
+        signal: controller.signal
+      }
+    );
+    clearTimeout(timeout);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || `Gemini API 錯誤 (${res.status})`);
+    const rawText = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    if (!rawText.trim()) throw new Error('Gemini 未回傳內容，請確認 API Key 正確');
+    const match = rawText.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error('AI 無法辨識題目結構，請確認文件包含選擇題（題號、選項、答案）');
+    return JSON.parse(match[0]);
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') throw new Error('AI 分析超時（2 分鐘），請嘗試上傳頁數較少的 PDF');
+    throw err;
+  }
 }
 
 async function parsePdfViaApi(file) {
