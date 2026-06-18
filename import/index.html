@@ -176,6 +176,40 @@
     font-size: 0.9rem;
     margin-bottom: 12px;
   }
+  .key-setup {
+    background: #f0f4ff;
+    border: 1.5px solid #c0cce8;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    font-size: 0.9rem;
+  }
+  .key-setup h3 { margin: 0 0 8px; font-size: 1rem; color: var(--navy); }
+  .key-setup p { margin: 0 0 10px; color: var(--gray); }
+  .key-row { display: flex; gap: 8px; }
+  .key-row input {
+    flex: 1;
+    padding: 9px 11px;
+    border: 1.5px solid #d3d9e8;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: monospace;
+  }
+  .key-row input:focus { outline: none; border-color: var(--navy); }
+  .key-save-btn {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .key-status { font-size: 0.82rem; margin-top: 6px; }
+  .key-status.ok { color: var(--green); }
+  .key-status.missing { color: var(--red); }
   .hidden { display: none !important; }
   footer { text-align: center; color: var(--gray); font-size: 0.75rem; padding: 16px; }
 </style>
@@ -188,6 +222,18 @@
 </header>
 
 <main>
+  <!-- API Key 設定（PDF/Word/Excel 需要，JSON 不需要） -->
+  <div class="key-setup" id="keySetup">
+    <h3>🔑 設定 Gemini AI 金鑰</h3>
+    <p>PDF、Word、Excel 解析需要 Google Gemini API Key，JSON 格式不需要。<br>
+    免費金鑰：至 <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a> 建立（每天 1,500 次免費額度）。</p>
+    <div class="key-row">
+      <input type="password" id="keyInput" placeholder="貼上 API Key（AIza...）">
+      <button class="key-save-btn" id="keySaveBtn">儲存</button>
+    </div>
+    <div class="key-status" id="keyStatus"></div>
+  </div>
+
   <!-- Step 1: 選擇檔案 -->
   <section id="step1" class="card">
     <h2>選擇題庫檔案</h2>
@@ -243,11 +289,44 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <script>
-const API_BASE = 'https://post-generator-roan.vercel.app';
 const LETTERS = ['A', 'B', 'C', 'D'];
+const GEMINI_KEY_STORAGE = 'gemini_api_key';
+const AI_EXTRACT_PROMPT = `從以下文字提取所有選擇題，只輸出純 JSON 陣列，禁止輸出其他任何文字：
+[{"num":1,"chapter":"章節（無則空字串）","q":"題目","options":["A選項","B選項","C選項","D選項"],"answer":"A"}]
+規則：answer只填字母A/B/C/D；章節取自該段落前的標題行；題號不明從1開始。
+
+文字內容：
+`;
 
 let parsedQuestions = [];
 let selectedFile = null;
+
+// ── Gemini Key 管理 ──
+function getGeminiKey() { return localStorage.getItem(GEMINI_KEY_STORAGE) || ''; }
+
+function updateKeyStatus() {
+  const key = getGeminiKey();
+  const statusEl = document.getElementById('keyStatus');
+  const inputEl = document.getElementById('keyInput');
+  if (key) {
+    statusEl.textContent = `✓ 已設定（${key.slice(0, 8)}…）`;
+    statusEl.className = 'key-status ok';
+    inputEl.placeholder = '更新 API Key（AIza...）';
+  } else {
+    statusEl.textContent = '尚未設定，PDF / Word / Excel 解析需要此金鑰';
+    statusEl.className = 'key-status missing';
+  }
+}
+
+document.getElementById('keySaveBtn').addEventListener('click', () => {
+  const val = document.getElementById('keyInput').value.trim();
+  if (!val) return;
+  localStorage.setItem(GEMINI_KEY_STORAGE, val);
+  document.getElementById('keyInput').value = '';
+  updateKeyStatus();
+});
+
+updateKeyStatus();
 
 // ── 檔案選擇 ──
 const dropZone = document.getElementById('dropZone');
@@ -304,14 +383,14 @@ async function parseFile(file) {
     return parseJson(await file.text());
   }
   if (ext === 'xlsx' || ext === 'xls') {
-    document.getElementById('processingText').textContent = 'Excel 讀取中…';
+    document.getElementById('processingText').textContent = 'Excel 讀取中，AI 分析中…';
     const csvText = await xlsxToCsv(await file.arrayBuffer());
-    return await parseTextInChunks(csvText);
+    return await parseWithGemini(csvText);
   }
   if (ext === 'docx') {
-    document.getElementById('processingText').textContent = 'Word 文字提取中…';
+    document.getElementById('processingText').textContent = 'Word 文字提取中，AI 分析中…';
     const text = await extractDocxText(file);
-    return await parseTextInChunks(text);
+    return await parseWithGemini(text);
   }
   if (ext === 'pdf') {
     document.getElementById('processingText').textContent = 'AI 分析 PDF 中…（約 10-20 秒）';
@@ -338,42 +417,25 @@ async function extractDocxText(file) {
   return result.value;
 }
 
-const CHUNK_SIZE = 5000; // Edge Runtime 30 秒但每段維持小量確保快速完成
-
-async function parseViaApi(body) {
-  const res = await fetch(`${API_BASE}/api/quiz/parse`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`伺服器錯誤（${res.status}）：${text.slice(0, 100) || '請稍後重試'}`);
-  }
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data.questions;
-}
-
-async function parseTextInChunks(fullText) {
-  // 超過 CHUNK_SIZE 就分段送 AI，合併結果
-  const chunks = [];
-  for (let i = 0; i < fullText.length; i += CHUNK_SIZE) {
-    chunks.push(fullText.slice(i, i + CHUNK_SIZE));
-  }
-  let allQuestions = [];
-  for (let i = 0; i < chunks.length; i++) {
-    document.getElementById('processingText').textContent =
-      `AI 分析中…（第 ${i + 1} / ${chunks.length} 段，共 ${chunks.length} 段）`;
-    const qs = await parseViaApi({ type: 'docx', text: chunks[i] });
-    if (Array.isArray(qs)) {
-      // 重新編題號避免重複
-      const offset = allQuestions.length;
-      qs.forEach((q, idx) => { q.num = offset + idx + 1; });
-      allQuestions = allQuestions.concat(qs);
+async function parseWithGemini(text) {
+  const key = getGeminiKey();
+  if (!key) throw new Error('請先在上方設定 Gemini API Key（免費），才能解析此格式');
+  const prompt = AI_EXTRACT_PROMPT + text;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     }
-  }
-  return allQuestions;
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || `Gemini API 錯誤 (${res.status})`);
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) throw new Error('Gemini 未回傳內容，請確認 API Key 正確');
+  const match = rawText.match(/\[[\s\S]*\]/);
+  if (!match) throw new Error('AI 無法從文件中辨識出題目結構，請確認格式正確');
+  return JSON.parse(match[0]);
 }
 
 async function parsePdfViaApi(file) {
@@ -393,8 +455,9 @@ async function parsePdfViaApi(file) {
   if (fullText.trim().length < 30) {
     throw new Error('PDF 文字提取失敗，此 PDF 可能是掃描圖片格式（非文字型），請轉成 Word 或 Excel 再試');
   }
-  // Step 2：分段送 AI 解析（每段 12,000 字）
-  return await parseTextInChunks(fullText);
+  // Step 2：直接送 Gemini 解析（無 Vercel 超時限制）
+  document.getElementById('processingText').textContent = 'AI 分析題目結構中…';
+  return await parseWithGemini(fullText);
 }
 
 async function loadPdfJs() {
