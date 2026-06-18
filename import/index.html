@@ -338,7 +338,7 @@ async function extractDocxText(file) {
   return result.value;
 }
 
-const CHUNK_SIZE = 12000; // Vercel Hobby 10 秒限制，每段不超過此字數
+const CHUNK_SIZE = 5000; // Edge Runtime 30 秒但每段維持小量確保快速完成
 
 async function parseViaApi(body) {
   const res = await fetch(`${API_BASE}/api/quiz/parse`, {
