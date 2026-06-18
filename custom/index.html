@@ -337,8 +337,8 @@ function init() {
   allQuestions = bank.questions;
   STORAGE_KEY = `quiz_custom_wrong_${bankId}`;
   document.getElementById('pageTitle').textContent = bank.name;
-  document.getElementById('pageSubtitle').textContent = `共 ${allQuestions.length} 題`;
-  document.title = bank.name + ' — 自訂題庫測驗';
+  document.getElementById('pageSubtitle').textContent = bank.subtitle || `共 ${allQuestions.length} 題`;
+  document.title = bank.name;
 
   // 設定「全部」選項
   const selectEl = document.getElementById('randomCount');

@@ -142,7 +142,7 @@ function loadCustomBanks() {
     a.innerHTML = `
       <div class="info">
         <b>📋 ${bank.name}</b>
-        <span>共 ${bank.questions.length} 題</span>
+        <span>${bank.subtitle || `共 ${bank.questions.length} 題`}</span>
       </div>
       <span class="arrow">›</span>
     `;

@@ -201,7 +201,7 @@
       <strong>支援格式</strong>
       <ul>
         <li><strong>JSON</strong>：相容現有題庫格式（<code>num, q, options, answer</code>）</li>
-        <li><strong>Excel（.xlsx）</strong>：第一列為標題，欄位依序為：<code>題號 / 章節 / 題目 / 選項A / 選項B / 選項C / 選項D / 正確答案</code></li>
+        <li><strong>Excel（.xlsx）</strong>：AI 自動辨識欄位，不限格式</li>
         <li><strong>PDF（.pdf）</strong>：AI 自動辨識題目結構，限 4MB 以下</li>
         <li><strong>Word（.docx）</strong>：AI 自動辨識題目結構</li>
       </ul>
@@ -226,8 +226,10 @@
     <p class="stats" id="statsText"></p>
     <div id="previewList"></div>
     <div class="name-row">
-      <label for="bankName">題庫名稱</label>
-      <input type="text" id="bankName" placeholder="例：換證複習題庫 2026">
+      <label for="quizTitle">測驗標題（顯示於測驗頁面頂部）</label>
+      <input type="text" id="quizTitle" placeholder="例：無人機換證學科複習 2026">
+      <label for="quizSubtitle" style="margin-top:10px;">副標題／說明（選填）</label>
+      <input type="text" id="quizSubtitle" placeholder="例：共 50 題，適合換證前一週衝刺">
     </div>
     <div class="btn-row">
       <button class="btn secondary" id="reuploadBtn">重新上傳</button>
@@ -302,7 +304,9 @@ async function parseFile(file) {
     return parseJson(await file.text());
   }
   if (ext === 'xlsx' || ext === 'xls') {
-    return parseXlsx(await file.arrayBuffer());
+    document.getElementById('processingText').textContent = 'AI 分析 Excel 中…（約 10-20 秒）';
+    const csvText = await xlsxToCsv(await file.arrayBuffer());
+    return await parseViaApi({ type: 'docx', text: csvText });
   }
   if (ext === 'docx') {
     document.getElementById('processingText').textContent = 'AI 分析 Word 文件中…（約 10-20 秒）';
@@ -322,31 +326,10 @@ function parseJson(text) {
   return arr.filter(q => q.q && q.options && q.answer);
 }
 
-function parseXlsx(arrayBuffer) {
+function xlsxToCsv(arrayBuffer) {
   const workbook = XLSX.read(arrayBuffer, { type: 'array' });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-  return rows.map((row, i) => {
-    const keys = Object.keys(row);
-    const find = (...names) => {
-      for (const name of names) {
-        const key = keys.find(k => k.replace(/\s/g,'').toLowerCase() === name.toLowerCase());
-        if (key !== undefined && String(row[key]).trim() !== '') return String(row[key]).trim();
-      }
-      return '';
-    };
-    const num = parseInt(find('題號','num','no','序號'), 10) || i + 1;
-    const chapter = find('章節','chapter','分類');
-    const q = find('題目','q','question','問題');
-    const optA = find('選項A','選項a','opta','a');
-    const optB = find('選項B','選項b','optb','b');
-    const optC = find('選項C','選項c','optc','c');
-    const optD = find('選項D','選項d','optd','d');
-    const answer = find('正確答案','答案','answer').toUpperCase();
-    const options = [optA, optB, optC, optD].filter(Boolean);
-    if (!q || !answer || options.length < 2) return null;
-    return { num, chapter, q, options, answer };
-  }).filter(Boolean);
+  return XLSX.utils.sheet_to_csv(sheet);
 }
 
 async function extractDocxText(file) {
@@ -408,20 +391,29 @@ function renderPreview() {
     listEl.appendChild(more);
   }
 
-  // 建議題庫名稱（用檔名去副檔名）
+  // 建議測驗標題（用檔名去副檔名）
   const suggestName = selectedFile.name.replace(/\.[^.]+$/, '');
-  document.getElementById('bankName').value = suggestName;
+  if (!document.getElementById('quizTitle').value) {
+    document.getElementById('quizTitle').value = suggestName;
+  }
 }
 
 // ── 儲存 ──
 document.getElementById('saveBtn').addEventListener('click', () => {
-  const name = document.getElementById('bankName').value.trim();
-  if (!name) {
-    document.getElementById('bankName').focus();
+  const title = document.getElementById('quizTitle').value.trim();
+  if (!title) {
+    document.getElementById('quizTitle').focus();
     return;
   }
+  const subtitle = document.getElementById('quizSubtitle').value.trim();
   const id = 'bank_' + Date.now();
-  const bank = { id, name, questions: parsedQuestions, createdAt: new Date().toISOString() };
+  const bank = {
+    id,
+    name: title,
+    subtitle: subtitle || `共 ${parsedQuestions.length} 題`,
+    questions: parsedQuestions,
+    createdAt: new Date().toISOString()
+  };
   const existing = getCustomBanks();
   existing.push(bank);
   localStorage.setItem('quiz_custom_banks', JSON.stringify(existing));
