@@ -294,6 +294,10 @@
       <span id="wrongCountText">只練習曾經答錯的題目</span>
     </button>
     <button class="clear-link" id="clearWrongBtn">清除錯題紀錄</button>
+    <button class="mode-btn hidden" id="aiExportBtn" style="border-color:#334155; background:#0f172a; color:#e2e8f0; margin-top:6px;">
+      <b style="color:#7dd3fc">📥 AI 全部解析並匯出報告</b>
+      <span id="aiExportText" style="color:#94a3b8;">將錯題逐題請 AI 解析，下載可研讀的 HTML 報告</span>
+    </button>
     <div id="continueSessionWrap" class="hidden" style="margin-top:4px;"></div>
     <button class="clear-link" id="clearAllBtn" style="display:none;">清除所有作答紀錄（含錯題本與進度）</button>
   </section>
@@ -368,6 +372,9 @@ function updateWrongCountText() {
   document.getElementById('wrongCountText').textContent =
     n > 0 ? `目前錯題本有 ${n} 題，只練習曾經答錯的題目` : '目前沒有錯題，太棒了！';
   document.getElementById('clearWrongBtn').classList.toggle('hidden', n === 0);
+  const aiBtn = document.getElementById('aiExportBtn');
+  aiBtn.classList.toggle('hidden', n === 0);
+  if (n > 0) document.getElementById('aiExportText').textContent = `共 ${n} 題，逐題 AI 解析後下載 HTML 報告（約 ${n * 7} 秒）`;
 }
 
 function showSection(id) {
@@ -678,6 +685,95 @@ document.getElementById('aiBtn').addEventListener('click', async () => {
   aiBtn.disabled = false;
   aiBtn.textContent = '🤖 AI 解析這題';
 });
+
+// ── AI 全部解析並匯出 ──
+document.getElementById('aiExportBtn').addEventListener('click', async () => {
+  const wrongSet = getWrongSet();
+  const wrongQs = allQuestions.filter(q => wrongSet.has(q.num));
+  if (wrongQs.length === 0) return;
+  if (!confirm(`即將逐題請 AI 解析 ${wrongQs.length} 題錯題，約需 ${wrongQs.length * 7} 秒，完成後自動下載報告。確定開始？`)) return;
+
+  const btn = document.getElementById('aiExportBtn');
+  const bTitle = btn.querySelector('b');
+  btn.disabled = true;
+
+  const results = [];
+  for (let i = 0; i < wrongQs.length; i++) {
+    const q = wrongQs[i];
+    bTitle.textContent = `⏳ 解析中…（${i + 1} / ${wrongQs.length} 題）`;
+    try {
+      const res = await fetch(`${API_BASE}/api/quiz/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q.q, options: q.options, answer: q.answer, chapter: q.chapter || '' })
+      });
+      const data = await res.json();
+      results.push({ q, explanation: data.explanation || `⚠️ ${data.error || '解析失敗'}` });
+    } catch {
+      results.push({ q, explanation: '⚠️ 無法連線，請確認網路後重試' });
+    }
+  }
+
+  const html = buildReportHtml(results, document.title);
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `錯題解析報告_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  btn.disabled = false;
+  bTitle.textContent = '📥 AI 全部解析並匯出報告';
+});
+
+function buildReportHtml(results, title) {
+  const now = new Date().toLocaleString('zh-TW');
+  const items = results.map(({ q, explanation }, i) => {
+    const opts = q.options.map((o, j) => {
+      const l = LETTERS[j];
+      const ok = l === q.answer;
+      return `<div class="opt${ok ? ' correct' : ''}">${l}. ${o}</div>`;
+    }).join('');
+    return `<div class="card">
+      <div class="meta">第 ${i + 1} 題（題號 ${q.num}）${q.chapter ? '　' + q.chapter : ''}</div>
+      <p class="q">${q.q}</p>
+      <div class="opts">${opts}</div>
+      <div class="ans">✓ 正確答案：${q.answer}. ${q.options[LETTERS.indexOf(q.answer)]}</div>
+      <div class="exp">${explanation.replace(/\n/g, '<br>')}</div>
+    </div>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>錯題 AI 解析報告</title>
+<style>
+  body{font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+       max-width:800px;margin:0 auto;padding:24px 16px;color:#1f2530;line-height:1.75;}
+  h1{color:#002060;font-size:1.4rem;border-bottom:3px solid #002060;padding-bottom:10px;}
+  .info{color:#6b7280;font-size:.87rem;margin-bottom:28px;}
+  .card{border:1.5px solid #e2e6f0;border-radius:14px;padding:20px;margin-bottom:20px;page-break-inside:avoid;}
+  .meta{font-size:.8rem;color:#6b7280;margin-bottom:8px;}
+  .q{font-size:1.05rem;font-weight:700;margin:0 0 14px;line-height:1.6;}
+  .opts{margin-bottom:10px;}
+  .opt{padding:8px 12px;border:1.5px solid #e2e6f0;border-radius:8px;margin-bottom:6px;font-size:.95rem;}
+  .opt.correct{background:#e6f4ea;border-color:#1e7e34;color:#1e7e34;font-weight:700;}
+  .ans{font-weight:700;color:#1e7e34;font-size:.93rem;margin-bottom:10px;}
+  .exp{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:14px 16px;
+       font-size:.92rem;line-height:1.85;white-space:pre-wrap;}
+  @media print{.card{page-break-inside:avoid;}}
+</style>
+</head>
+<body>
+<h1>錯題 AI 解析報告</h1>
+<div class="info">來源：${title}　產生時間：${now}　共 ${results.length} 題</div>
+${items}
+</body>
+</html>`;
+}
 </script>
 </body>
 </html>
