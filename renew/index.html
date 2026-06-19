@@ -295,6 +295,7 @@
     </button>
     <button class="clear-link" id="clearWrongBtn">清除錯題紀錄</button>
     <div id="continueSessionWrap" class="hidden" style="margin-top:4px;"></div>
+    <button class="clear-link" id="clearAllBtn" style="display:none;">清除所有作答紀錄（含錯題本與進度）</button>
   </section>
 
   <!-- 測驗中 -->
@@ -576,6 +577,21 @@ function saveSession() {
 
 function clearSession() { localStorage.removeItem(SESSION_KEY); }
 
+function updateClearAllBtn() {
+  const hasWrong = getWrongSet().size > 0;
+  const hasSession = !!localStorage.getItem(SESSION_KEY);
+  document.getElementById('clearAllBtn').style.display = (hasWrong || hasSession) ? 'block' : 'none';
+}
+
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+  if (!confirm('確定要清除所有作答紀錄（錯題本 + 上次進度）嗎？')) return;
+  clearSession();
+  localStorage.removeItem(STORAGE_KEY);
+  document.getElementById('continueSessionWrap').classList.add('hidden');
+  document.getElementById('clearAllBtn').style.display = 'none';
+  updateWrongCountText();
+});
+
 function checkSavedSession() {
   let session;
   try { session = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch {}
@@ -601,6 +617,7 @@ function checkSavedSession() {
   });
   wrap.innerHTML = '';
   wrap.appendChild(btn);
+  updateClearAllBtn();
 }
 
 fetch('questions.json')
@@ -609,6 +626,7 @@ fetch('questions.json')
     allQuestions = data;
     updateWrongCountText();
     checkSavedSession();
+    updateClearAllBtn();
   })
   .catch(err => {
     document.getElementById('home').innerHTML = '<p>題庫載入失敗，請重新整理頁面。</p>';

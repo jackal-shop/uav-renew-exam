@@ -268,6 +268,7 @@
     </button>
     <button class="clear-link" id="clearWrongBtn">清除錯題紀錄</button>
     <div id="continueSessionWrap" class="hidden" style="margin-top:4px;"></div>
+    <button class="clear-link" id="clearAllBtn" style="display:none;">清除所有作答紀錄（含錯題本與進度）</button>
     <button class="btn danger" id="deleteBankBtn" style="margin-top:8px;">🗑 刪除此題庫</button>
   </section>
 
@@ -620,7 +621,24 @@ function checkSavedSession() {
   });
   wrap.innerHTML = '';
   wrap.appendChild(btn);
+  updateClearAllBtn();
 }
+
+function updateClearAllBtn() {
+  const hasWrong = STORAGE_KEY ? getWrongSet().size > 0 : false;
+  const hasSession = SESSION_KEY ? !!localStorage.getItem(SESSION_KEY) : false;
+  const btn = document.getElementById('clearAllBtn');
+  if (btn) btn.style.display = (hasWrong || hasSession) ? 'block' : 'none';
+}
+
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+  if (!confirm('確定要清除所有作答紀錄（錯題本 + 上次進度）嗎？')) return;
+  clearSession();
+  if (STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
+  document.getElementById('continueSessionWrap').classList.add('hidden');
+  updateWrongCountText();
+  updateClearAllBtn();
+});
 
 function init() {
   const banks = getCustomBanks();
@@ -642,6 +660,7 @@ function init() {
   showSection('home');
   updateWrongCountText();
   checkSavedSession();
+  updateClearAllBtn();
 }
 
 init();
