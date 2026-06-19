@@ -383,17 +383,16 @@ async function parseFile(file) {
     return parseJson(await file.text());
   }
   if (ext === 'xlsx' || ext === 'xls') {
-    document.getElementById('processingText').textContent = 'Excel 讀取中，AI 分析中…';
+    document.getElementById('processingText').textContent = 'Excel 讀取中…';
     const csvText = await xlsxToCsv(await file.arrayBuffer());
-    return await parseWithGemini(csvText);
+    return await parseInChunks(csvText);
   }
   if (ext === 'docx') {
-    document.getElementById('processingText').textContent = 'Word 文字提取中，AI 分析中…';
+    document.getElementById('processingText').textContent = 'Word 文字提取中…';
     const text = await extractDocxText(file);
-    return await parseWithGemini(text);
+    return await parseInChunks(text);
   }
   if (ext === 'pdf') {
-    document.getElementById('processingText').textContent = 'AI 分析 PDF 中…（約 10-20 秒）';
     return await parsePdfViaApi(file);
   }
   throw new Error(`不支援 .${ext} 格式`);
@@ -423,7 +422,7 @@ async function parseWithGemini(text) {
   const prompt = AI_EXTRACT_PROMPT + text;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000); // 2 分鐘上限
+  const timeout = setTimeout(() => controller.abort(), 45000); // 每段 45 秒上限
 
   try {
     const res = await fetch(
@@ -448,31 +447,64 @@ async function parseWithGemini(text) {
     return JSON.parse(match[0]);
   } catch (err) {
     clearTimeout(timeout);
-    if (err.name === 'AbortError') throw new Error('AI 分析超時（2 分鐘），請嘗試上傳頁數較少的 PDF');
+    if (err.name === 'AbortError') throw new Error('AI 分析此段超時，請確認 API Key 正確或稍後重試');
     throw err;
   }
 }
 
+// 把長文字切成 4000 字一段，逐段送 Gemini，合併結果
+async function parseInChunks(text) {
+  const CHUNK = 4000;
+  const chunks = [];
+  for (let i = 0; i < text.length; i += CHUNK) chunks.push(text.slice(i, i + CHUNK));
+  let all = [];
+  for (let i = 0; i < chunks.length; i++) {
+    document.getElementById('processingText').textContent =
+      `AI 分析中…（第 ${i + 1} / ${chunks.length} 段）`;
+    const qs = await parseWithGemini(chunks[i]);
+    if (Array.isArray(qs)) {
+      const offset = all.length;
+      qs.forEach((q, j) => { q.num = offset + j + 1; });
+      all = all.concat(qs);
+    }
+  }
+  return all;
+}
+
 async function parsePdfViaApi(file) {
-  // Step 1：客戶端用 pdf.js 抽文字（避免 Vercel 超時）
+  // Step 1：pdf.js 逐頁抽文字
   document.getElementById('processingText').textContent = 'PDF 文字提取中…';
   await loadPdfJs();
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let fullText = '';
+  const pages = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     document.getElementById('processingText').textContent = `PDF 文字提取中…（第 ${i} / ${pdf.numPages} 頁）`;
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const pageText = content.items.map(item => item.str).join(' ');
-    fullText += `\n--- 第 ${i} 頁 ---\n${pageText}`;
+    pages.push(content.items.map(item => item.str).join(' '));
   }
-  if (fullText.trim().length < 30) {
-    throw new Error('PDF 文字提取失敗，此 PDF 可能是掃描圖片格式（非文字型），請轉成 Word 或 Excel 再試');
+  if (pages.join('').trim().length < 30) {
+    throw new Error('PDF 文字提取失敗，此 PDF 可能是掃描圖片格式，請轉成 Word 或 Excel 再試');
   }
-  // Step 2：直接送 Gemini 解析（無 Vercel 超時限制）
-  document.getElementById('processingText').textContent = 'AI 分析題目結構中…';
-  return await parseWithGemini(fullText);
+  // Step 2：每 3 頁一段送 Gemini（避免單次太大超時）
+  const PAGES_PER_CHUNK = 3;
+  const chunks = [];
+  for (let i = 0; i < pages.length; i += PAGES_PER_CHUNK) {
+    chunks.push(pages.slice(i, i + PAGES_PER_CHUNK).join('\n'));
+  }
+  let all = [];
+  for (let i = 0; i < chunks.length; i++) {
+    document.getElementById('processingText').textContent =
+      `AI 分析中…（第 ${i + 1} / ${chunks.length} 段，每段 ${PAGES_PER_CHUNK} 頁）`;
+    const qs = await parseWithGemini(chunks[i]);
+    if (Array.isArray(qs)) {
+      const offset = all.length;
+      qs.forEach((q, j) => { q.num = offset + j + 1; });
+      all = all.concat(qs);
+    }
+  }
+  return all;
 }
 
 async function loadPdfJs() {
