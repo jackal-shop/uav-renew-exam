@@ -444,11 +444,31 @@ async function parseWithGemini(text) {
     if (!rawText.trim()) throw new Error('Gemini 未回傳內容，請確認 API Key 正確');
     const match = rawText.match(/\[[\s\S]*\]/);
     if (!match) throw new Error('AI 無法辨識題目結構，請確認文件包含選擇題（題號、選項、答案）');
-    return JSON.parse(match[0]);
+    return parseJsonSafe(match[0]);
   } catch (err) {
     clearTimeout(timeout);
     if (err.name === 'AbortError') throw new Error('AI 分析此段超時，請確認 API Key 正確或稍後重試');
     throw err;
+  }
+}
+
+// 清理 Gemini 回傳 JSON 中可能含有的未跳脫控制字元
+function parseJsonSafe(jsonStr) {
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // 把 JSON 字串值內的控制字元替換成合法的跳脫序列
+    const fixed = jsonStr.replace(/"(?:[^"\\]|\\.)*"/g, (str) =>
+      str.replace(/[\x00-\x1f]/g, (c) => ({
+        '\n': '\\n', '\r': '\\r', '\t': '\\t',
+        '\b': '\\b', '\f': '\\f'
+      })[c] ?? '')
+    );
+    try {
+      return JSON.parse(fixed);
+    } catch (e) {
+      throw new Error(`題庫格式解析失敗（${e.message}），請重試`);
+    }
   }
 }
 
