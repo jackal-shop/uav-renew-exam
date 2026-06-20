@@ -299,10 +299,23 @@
       <span id="aiExportText" style="color:#94a3b8;">將錯題逐題請 AI 解析，下載可研讀的 HTML 報告</span>
     </button>
     <button class="clear-link hidden" id="aiStopBtn" style="color:#f87171;">⏹ 停止解析</button>
-    <button class="mode-btn" id="allExportBtn" style="border-color:#1e3a5f; background:#0c2340; color:#e2e8f0; margin-top:6px;">
-      <b style="color:#93c5fd">📚 匯出全部題庫含 AI 解析</b>
-      <span style="color:#94a3b8;">將所有 588 題逐題 AI 解析後下載，可中途停止並下載已完成部分</span>
-    </button>
+    <div id="allExportPanel" style="border:2px solid #1e3a5f; background:#0c2340; border-radius:12px; padding:16px; margin-bottom:12px; margin-top:6px;">
+      <b style="display:block; color:#93c5fd; font-size:1.05rem; margin-bottom:8px;">📚 全部題庫 AI 解析</b>
+      <div style="font-size:.8rem; color:#94a3b8; display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span id="allExportStatus">尚未開始</span>
+        <span id="allExportPct"></span>
+      </div>
+      <div style="background:#1e293b; border-radius:4px; height:5px; margin-bottom:10px;">
+        <div id="allExportFill" style="background:#7dd3fc; height:100%; border-radius:4px; width:0%; transition:width .4s;"></div>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button id="allStartBtn" style="background:#1e4a7a; color:#e2e8f0; border:none; border-radius:6px; padding:6px 14px; font-size:.87rem; cursor:pointer;">▶ 開始</button>
+        <button id="allPauseBtn" class="hidden" style="background:#334155; color:#e2e8f0; border:none; border-radius:6px; padding:6px 14px; font-size:.87rem; cursor:pointer;">⏸ 暫停</button>
+        <button id="allDownloadPartialBtn" style="background:#1e3a2a; color:#86efac; border:1px solid #166534; border-radius:6px; padding:6px 14px; font-size:.87rem; cursor:pointer;" disabled>📥 下載目前進度</button>
+        <button id="allDownloadCompleteBtn" class="hidden" style="background:#14532d; color:#86efac; border:1.5px solid #22c55e; border-radius:6px; padding:6px 14px; font-size:.87rem; cursor:pointer; font-weight:700;">✅ 下載完整報告</button>
+      </div>
+      <button class="clear-link" id="allClearBtn" style="color:#475569; font-size:.78rem; margin-top:8px;">清除解析進度</button>
+    </div>
     <div id="continueSessionWrap" class="hidden" style="margin-top:4px;"></div>
     <button class="clear-link" id="clearAllBtn" style="display:none;">清除所有作答紀錄（含錯題本與進度）</button>
   </section>
@@ -754,67 +767,115 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
 });
 
 // ── 全部題庫 AI 解析匯出 ──
-document.getElementById('allExportBtn').addEventListener('click', async () => {
+// ── 全部題庫 AI 解析（localStorage 累積版）──
+(function() {
+  const KEY = 'uav_allExport_pro_v1';
   const total = allQuestions.length;
-  const estMin = Math.round(total * 7 / 60);
-  if (!confirm(`將對全部 ${total} 題逐題 AI 解析，預估約需 ${estMin} 分鐘。\n可隨時按「停止解析」中斷並下載已完成部分。\n\n確定開始？`)) return;
 
-  const btn = document.getElementById('allExportBtn');
-  const exportBtn = document.getElementById('aiExportBtn');
-  const stopBtn = document.getElementById('aiStopBtn');
-  const bTitle = btn.querySelector('b');
-  btn.disabled = true;
-  exportBtn.disabled = true;
-  stopBtn.classList.remove('hidden');
-  let aborted = false;
-  let controller = new AbortController();
-  stopBtn.onclick = () => {
-    aborted = true;
-    controller.abort();
-    stopBtn.disabled = true;
-    stopBtn.textContent = '⏹ 停止中…';
-  };
+  function getData() {
+    try { return JSON.parse(localStorage.getItem(KEY)) || { completed: [] }; }
+    catch { return { completed: [] }; }
+  }
+  function saveData(d) { localStorage.setItem(KEY, JSON.stringify(d)); }
 
-  const results = [];
-  for (let i = 0; i < allQuestions.length; i++) {
-    if (aborted) break;
-    const q = allQuestions[i];
-    bTitle.textContent = `⏳ 解析中…（${i + 1} / ${total} 題）`;
-    controller = new AbortController();
-    try {
-      const res = await fetch(`${API_BASE}/api/quiz/explain`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q.q, options: q.options, answer: q.answer, chapter: q.chapter || '' }),
-        signal: controller.signal
-      });
-      const data = await res.json();
-      results.push({ q, explanation: data.explanation || `⚠️ ${data.error || '解析失敗'}` });
-    } catch(e) {
-      if (aborted) break;
-      results.push({ q, explanation: '⚠️ 無法連線，請確認網路後重試' });
-    }
+  function updateUI() {
+    const n = getData().completed.length;
+    const pct = Math.round(n / total * 100);
+    document.getElementById('allExportStatus').textContent =
+      n === 0 ? '尚未開始' : `已完成 ${n} / ${total} 題`;
+    document.getElementById('allExportPct').textContent = n > 0 ? `${pct}%` : '';
+    document.getElementById('allExportFill').style.width = `${pct}%`;
+    document.getElementById('allDownloadPartialBtn').disabled = n === 0;
+    document.getElementById('allDownloadCompleteBtn').classList.toggle('hidden', n < total);
+    const startBtn = document.getElementById('allStartBtn');
+    startBtn.textContent = n >= total ? '🔄 重新解析' : n > 0 ? `▶ 繼續（剩 ${total - n} 題）` : '▶ 開始';
   }
 
-  stopBtn.classList.add('hidden');
-  stopBtn.disabled = false;
-  stopBtn.textContent = '⏹ 停止解析';
-
-  if (results.length > 0) {
-    const titleSuffix = aborted ? `（已解析 ${results.length}／${total} 題）` : '';
-    const html = buildReportHtml(results, `全部題庫 AI 解析${titleSuffix}`);
+  function triggerDownload(completed, isComplete) {
+    const sorted = [...completed].sort((a, b) => a.q.num - b.q.num);
+    const dateStr = new Date().toLocaleDateString('zh-TW').replace(/\//g, '-');
+    const suffix = isComplete ? '' : `（已解析 ${completed.length}／${total} 題）`;
+    const html = buildReportHtml(sorted, `全部題庫 AI 解析${suffix}`);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `全部題庫解析報告_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.html`;
+    a.download = isComplete
+      ? `全部題庫完整解析_${dateStr}.html`
+      : `題庫解析進度_${completed.length}題_${dateStr}.html`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  btn.disabled = false;
-  exportBtn.disabled = false;
-  bTitle.textContent = '📚 匯出全部題庫含 AI 解析';
-});
+  let allAborted = false;
+  let allCtrl = new AbortController();
+
+  document.getElementById('allStartBtn').addEventListener('click', async () => {
+    const data = getData();
+    const doneNums = new Set(data.completed.map(r => r.q.num));
+    const remaining = allQuestions.filter(q => !doneNums.has(q.num));
+    if (remaining.length === 0) { triggerDownload(data.completed, true); return; }
+
+    const startBtn = document.getElementById('allStartBtn');
+    const pauseBtn = document.getElementById('allPauseBtn');
+    const aiExBtn  = document.getElementById('aiExportBtn');
+    startBtn.classList.add('hidden');
+    pauseBtn.classList.remove('hidden');
+    aiExBtn.disabled = true;
+    allAborted = false;
+
+    pauseBtn.onclick = () => {
+      allAborted = true; allCtrl.abort();
+      pauseBtn.textContent = '⏸ 停止中…'; pauseBtn.disabled = true;
+    };
+
+    for (let i = 0; i < remaining.length; i++) {
+      if (allAborted) break;
+      const q = remaining[i];
+      const done = getData().completed.length;
+      document.getElementById('allExportStatus').textContent = `解析中…（${done + 1} / ${total} 題）`;
+      document.getElementById('allExportFill').style.width = `${Math.round(done / total * 100)}%`;
+      allCtrl = new AbortController();
+      try {
+        const res = await fetch(`${API_BASE}/api/quiz/explain`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: q.q, options: q.options, answer: q.answer, chapter: q.chapter || '' }),
+          signal: allCtrl.signal
+        });
+        const rd = await res.json();
+        const d = getData();
+        d.completed.push({ q, explanation: rd.explanation || `⚠️ ${rd.error || '解析失敗'}` });
+        saveData(d);
+      } catch(e) {
+        if (allAborted) break;
+        const d = getData(); d.completed.push({ q, explanation: '⚠️ 無法連線' }); saveData(d);
+      }
+    }
+
+    pauseBtn.classList.add('hidden');
+    pauseBtn.disabled = false; pauseBtn.textContent = '⏸ 暫停';
+    startBtn.classList.remove('hidden');
+    aiExBtn.disabled = false;
+    updateUI();
+  });
+
+  document.getElementById('allDownloadPartialBtn').addEventListener('click', () => {
+    const d = getData();
+    if (d.completed.length === 0) return;
+    triggerDownload(d.completed, d.completed.length >= total);
+  });
+
+  document.getElementById('allDownloadCompleteBtn').addEventListener('click', () => {
+    triggerDownload(getData().completed, true);
+  });
+
+  document.getElementById('allClearBtn').addEventListener('click', () => {
+    if (!confirm('確定清除所有已解析的進度？')) return;
+    localStorage.removeItem(KEY); updateUI();
+  });
+
+  updateUI();
+})();
 
 function buildReportHtml(results, title) {
   const now = new Date().toLocaleString('zh-TW');
