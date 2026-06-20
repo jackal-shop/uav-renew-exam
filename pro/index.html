@@ -661,6 +661,7 @@ fetch('questions.json')
     updateWrongCountText();
     checkSavedSession();
     updateClearAllBtn();
+    window._allExportInitPro && window._allExportInitPro();
   })
   .catch(err => {
     document.getElementById('home').innerHTML = '<p>題庫載入失敗，請重新整理頁面。</p>';
@@ -770,7 +771,6 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
 // ── 全部題庫 AI 解析（localStorage 累積版）──
 (function() {
   const KEY = 'uav_allExport_pro_v1';
-  const total = allQuestions.length;
 
   function getData() {
     try { return JSON.parse(localStorage.getItem(KEY)) || { completed: [] }; }
@@ -779,16 +779,17 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
   function saveData(d) { localStorage.setItem(KEY, JSON.stringify(d)); }
 
   function updateUI() {
+    const total = allQuestions.length;
     const n = getData().completed.length;
-    const pct = Math.round(n / total * 100);
+    const pct = total > 0 ? Math.round(n / total * 100) : 0;
     document.getElementById('allExportStatus').textContent =
       n === 0 ? '尚未開始' : `已完成 ${n} / ${total} 題`;
     document.getElementById('allExportPct').textContent = n > 0 ? `${pct}%` : '';
     document.getElementById('allExportFill').style.width = `${pct}%`;
     document.getElementById('allDownloadPartialBtn').disabled = n === 0;
-    document.getElementById('allDownloadCompleteBtn').classList.toggle('hidden', n < total);
+    document.getElementById('allDownloadCompleteBtn').classList.toggle('hidden', total === 0 || n < total);
     const startBtn = document.getElementById('allStartBtn');
-    startBtn.textContent = n >= total ? '🔄 重新解析' : n > 0 ? `▶ 繼續（剩 ${total - n} 題）` : '▶ 開始';
+    startBtn.textContent = total > 0 && n >= total ? '🔄 重新解析' : n > 0 ? `▶ 繼續（剩 ${total - n} 題）` : '▶ 開始';
   }
 
   function triggerDownload(completed, isComplete) {
@@ -833,8 +834,9 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
       if (allAborted) break;
       const q = remaining[i];
       const done = getData().completed.length;
-      document.getElementById('allExportStatus').textContent = `解析中…（${done + 1} / ${total} 題）`;
-      document.getElementById('allExportFill').style.width = `${Math.round(done / total * 100)}%`;
+      const _total = allQuestions.length;
+      document.getElementById('allExportStatus').textContent = `解析中…（${done + 1} / ${_total} 題）`;
+      document.getElementById('allExportFill').style.width = `${Math.round(done / _total * 100)}%`;
       allCtrl = new AbortController();
       try {
         const res = await fetch(`${API_BASE}/api/quiz/explain`, {
@@ -862,7 +864,7 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
   document.getElementById('allDownloadPartialBtn').addEventListener('click', () => {
     const d = getData();
     if (d.completed.length === 0) return;
-    triggerDownload(d.completed, d.completed.length >= total);
+    triggerDownload(d.completed, d.completed.length >= allQuestions.length);
   });
 
   document.getElementById('allDownloadCompleteBtn').addEventListener('click', () => {
@@ -874,7 +876,7 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
     localStorage.removeItem(KEY); updateUI();
   });
 
-  updateUI();
+  window._allExportInitPro = updateUI;
 })();
 
 function buildReportHtml(results, title) {
