@@ -329,6 +329,7 @@
     <div id="options"></div>
     <div id="feedback" class="feedback hidden"></div>
     <button class="ai-btn hidden" id="aiBtn">🤖 AI 解析這題</button>
+    <button class="clear-link hidden" id="aiCancelBtn" style="color:#f87171; font-size:.85rem; margin-left:8px;">⏹ 取消</button>
     <div id="aiPanel" class="ai-panel hidden">
       <div class="ai-loading" id="aiLoading">AI 思考中⋯</div>
       <div id="aiText"></div>
@@ -422,7 +423,9 @@ function startQuiz(mode, count) {
 }
 
 function renderQuestion() {
+  if (_aiCtrl) { _aiCtrl.abort(); _aiCtrl = null; }
   document.getElementById('aiBtn').classList.add('hidden');
+  document.getElementById('aiCancelBtn').classList.add('hidden');
   document.getElementById('aiPanel').classList.add('hidden');
   document.getElementById('aiText').textContent = '';
   document.getElementById('aiBtn').disabled = false;
@@ -661,9 +664,11 @@ fetch('questions.json')
 
 const API_BASE = 'https://post-generator-roan.vercel.app';
 
+let _aiCtrl = null;
 document.getElementById('aiBtn').addEventListener('click', async () => {
   const q = queue[idx];
   const aiBtn = document.getElementById('aiBtn');
+  const aiCancelBtn = document.getElementById('aiCancelBtn');
   const aiPanel = document.getElementById('aiPanel');
   const aiLoading = document.getElementById('aiLoading');
   const aiText = document.getElementById('aiText');
@@ -673,25 +678,29 @@ document.getElementById('aiBtn').addEventListener('click', async () => {
   aiText.textContent = '';
   aiBtn.disabled = true;
   aiBtn.textContent = '⏳ AI 解析中…';
+  aiCancelBtn.classList.remove('hidden');
+
+  _aiCtrl = new AbortController();
+  aiCancelBtn.onclick = () => {
+    _aiCtrl.abort();
+    aiCancelBtn.classList.add('hidden');
+  };
 
   try {
     const res = await fetch(`${API_BASE}/api/quiz/explain`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question: q.q,
-        options: q.options,
-        answer: q.answer,
-        chapter: q.chapter || ''
-      })
+      body: JSON.stringify({ question: q.q, options: q.options, answer: q.answer, chapter: q.chapter || '' }),
+      signal: _aiCtrl.signal
     });
     const data = await res.json();
     aiLoading.classList.add('hidden');
     aiText.textContent = data.explanation || `⚠️ ${data.error || 'AI 解析失敗'}`;
-  } catch {
+  } catch(e) {
     aiLoading.classList.add('hidden');
-    aiText.textContent = '⚠️ 無法連線到 AI 服務，請確認網路連線後再試';
+    aiText.textContent = e.name === 'AbortError' ? '已取消 AI 解析。' : '⚠️ 無法連線到 AI 服務，請確認網路連線後再試';
   }
+  aiCancelBtn.classList.add('hidden');
   aiBtn.disabled = false;
   aiBtn.textContent = '🤖 AI 解析這題';
 });
