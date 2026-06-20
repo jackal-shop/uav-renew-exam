@@ -299,6 +299,10 @@
       <span id="aiExportText" style="color:#94a3b8;">將錯題逐題請 AI 解析，下載可研讀的 HTML 報告</span>
     </button>
     <button class="clear-link hidden" id="aiStopBtn" style="color:#f87171;">⏹ 停止解析</button>
+    <button class="mode-btn" id="allExportBtn" style="border-color:#1e3a5f; background:#0c2340; color:#e2e8f0; margin-top:6px;">
+      <b style="color:#93c5fd">📚 匯出全部題庫含 AI 解析</b>
+      <span style="color:#94a3b8;">將所有 588 題逐題 AI 解析後下載，可中途停止並下載已完成部分</span>
+    </button>
     <div id="continueSessionWrap" class="hidden" style="margin-top:4px;"></div>
     <button class="clear-link" id="clearAllBtn" style="display:none;">清除所有作答紀錄（含錯題本與進度）</button>
   </section>
@@ -747,6 +751,69 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
 
   btn.disabled = false;
   bTitle.textContent = '📥 AI 全部解析並匯出報告';
+});
+
+// ── 全部題庫 AI 解析匯出 ──
+document.getElementById('allExportBtn').addEventListener('click', async () => {
+  const total = allQuestions.length;
+  const estMin = Math.round(total * 7 / 60);
+  if (!confirm(`將對全部 ${total} 題逐題 AI 解析，預估約需 ${estMin} 分鐘。\n可隨時按「停止解析」中斷並下載已完成部分。\n\n確定開始？`)) return;
+
+  const btn = document.getElementById('allExportBtn');
+  const exportBtn = document.getElementById('aiExportBtn');
+  const stopBtn = document.getElementById('aiStopBtn');
+  const bTitle = btn.querySelector('b');
+  btn.disabled = true;
+  exportBtn.disabled = true;
+  stopBtn.classList.remove('hidden');
+  let aborted = false;
+  let controller = new AbortController();
+  stopBtn.onclick = () => {
+    aborted = true;
+    controller.abort();
+    stopBtn.disabled = true;
+    stopBtn.textContent = '⏹ 停止中…';
+  };
+
+  const results = [];
+  for (let i = 0; i < allQuestions.length; i++) {
+    if (aborted) break;
+    const q = allQuestions[i];
+    bTitle.textContent = `⏳ 解析中…（${i + 1} / ${total} 題）`;
+    controller = new AbortController();
+    try {
+      const res = await fetch(`${API_BASE}/api/quiz/explain`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q.q, options: q.options, answer: q.answer, chapter: q.chapter || '' }),
+        signal: controller.signal
+      });
+      const data = await res.json();
+      results.push({ q, explanation: data.explanation || `⚠️ ${data.error || '解析失敗'}` });
+    } catch(e) {
+      if (aborted) break;
+      results.push({ q, explanation: '⚠️ 無法連線，請確認網路後重試' });
+    }
+  }
+
+  stopBtn.classList.add('hidden');
+  stopBtn.disabled = false;
+  stopBtn.textContent = '⏹ 停止解析';
+
+  if (results.length > 0) {
+    const titleSuffix = aborted ? `（已解析 ${results.length}／${total} 題）` : '';
+    const html = buildReportHtml(results, `全部題庫 AI 解析${titleSuffix}`);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `全部題庫解析報告_${new Date().toLocaleDateString('zh-TW').replace(/\//g,'-')}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  btn.disabled = false;
+  exportBtn.disabled = false;
+  bTitle.textContent = '📚 匯出全部題庫含 AI 解析';
 });
 
 function buildReportHtml(results, title) {
