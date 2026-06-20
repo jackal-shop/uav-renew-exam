@@ -729,6 +729,7 @@ document.getElementById('aiExportBtn').addEventListener('click', async () => {
 
 function buildReportHtml(results, title) {
   const now = new Date().toLocaleString('zh-TW');
+  const dateStr = new Date().toLocaleDateString('zh-TW').replace(/\//g,'-');
   const items = results.map(({ q, explanation }, i) => {
     const opts = q.options.map((o, j) => {
       const l = LETTERS[j];
@@ -743,6 +744,7 @@ function buildReportHtml(results, title) {
       <div class="exp">${explanation.replace(/\n/g, '<br>')}</div>
     </div>`;
   }).join('');
+  const resultsJson = JSON.stringify(results).replace(/<\/script>/gi, '<\\/script>');
 
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -750,11 +752,17 @@ function buildReportHtml(results, title) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>錯題 AI 解析報告</title>
+<script src="https://cdn.jsdelivr.net/npm/docx@8/build/index.min.js"><\/script>
 <style>
   body{font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
        max-width:800px;margin:0 auto;padding:24px 16px;color:#1f2530;line-height:1.75;}
   h1{color:#002060;font-size:1.4rem;border-bottom:3px solid #002060;padding-bottom:10px;}
-  .info{color:#6b7280;font-size:.87rem;margin-bottom:28px;}
+  .info{color:#6b7280;font-size:.87rem;margin-bottom:16px;}
+  .actions{display:flex;gap:10px;margin-bottom:28px;}
+  .btn{padding:9px 20px;border:none;border-radius:8px;font-size:.93rem;cursor:pointer;font-weight:600;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-pdf{background:#002060;color:#fff;}
+  .btn-docx{background:#1e7e34;color:#fff;}
   .card{border:1.5px solid #e2e6f0;border-radius:14px;padding:20px;margin-bottom:20px;page-break-inside:avoid;}
   .meta{font-size:.8rem;color:#6b7280;margin-bottom:8px;}
   .q{font-size:1.05rem;font-weight:700;margin:0 0 14px;line-height:1.6;}
@@ -764,13 +772,61 @@ function buildReportHtml(results, title) {
   .ans{font-weight:700;color:#1e7e34;font-size:.93rem;margin-bottom:10px;}
   .exp{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:14px 16px;
        font-size:.92rem;line-height:1.85;white-space:pre-wrap;}
-  @media print{.card{page-break-inside:avoid;}}
+  @media print{
+    .actions{display:none;}
+    .exp{background:#f0f4f8!important;color:#1f2530!important;border:1px solid #cdd5e0;border-radius:8px;}
+    .card{page-break-inside:avoid;}
+  }
 </style>
 </head>
 <body>
 <h1>錯題 AI 解析報告</h1>
 <div class="info">來源：${title}　產生時間：${now}　共 ${results.length} 題</div>
+<div class="actions">
+  <button class="btn btn-pdf" onclick="window.print()">🖨️ 列印 / 另存 PDF</button>
+  <button class="btn btn-docx" id="docxBtn" onclick="exportDocx()">📄 下載 Word (.docx)</button>
+</div>
 ${items}
+<script>
+const _data = ${resultsJson};
+const _title = ${JSON.stringify(title)};
+const _date = "${dateStr}";
+async function exportDocx() {
+  const btn = document.getElementById('docxBtn');
+  btn.disabled = true; btn.textContent = '⏳ 產生中…';
+  try {
+    if (!window.docx) throw new Error('docx 套件未載入，請確認網路連線後重整頁面再試');
+    const { Document, Paragraph, TextRun, HeadingLevel, Packer } = window.docx;
+    const LTRS = ['A','B','C','D'];
+    const children = [
+      new Paragraph({ text: '錯題 AI 解析報告', heading: HeadingLevel.HEADING_1 }),
+      new Paragraph({ children: [new TextRun({ text: '來源：' + _title + '　產生時間：' + new Date().toLocaleString('zh-TW') + '　共 ' + _data.length + ' 題', color: '6b7280', size: 18 })] }),
+      new Paragraph({ text: '' }),
+    ];
+    _data.forEach(({ q, explanation }, i) => {
+      children.push(new Paragraph({ text: '第 ' + (i+1) + ' 題（題號 ' + q.num + '）' + (q.chapter ? '　' + q.chapter : ''), heading: HeadingLevel.HEADING_2 }));
+      children.push(new Paragraph({ children: [new TextRun({ text: q.q, bold: true, size: 24 })] }));
+      q.options.forEach((o, j) => {
+        const l = LTRS[j]; const isAns = l === q.answer;
+        children.push(new Paragraph({ children: [new TextRun({ text: l + '. ' + o, bold: isAns, color: isAns ? '1e7e34' : '1f2530', size: 22 })] }));
+      });
+      children.push(new Paragraph({ children: [new TextRun({ text: '✓ 正確答案：' + q.answer + '. ' + q.options[LTRS.indexOf(q.answer)], bold: true, color: '1e7e34', size: 22 })] }));
+      children.push(new Paragraph({ children: [new TextRun({ text: '【AI 解析】', bold: true, size: 22 })] }));
+      (explanation || '').split('\\n').forEach(line => {
+        children.push(new Paragraph({ children: [new TextRun({ text: line, size: 20 })] }));
+      });
+      children.push(new Paragraph({ text: '' }));
+    });
+    const doc = new Document({ sections: [{ properties: {}, children }] });
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = '錯題解析報告_' + _date + '.docx';
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) { alert('Word 匯出失敗：' + e.message); }
+  btn.disabled = false; btn.textContent = '📄 下載 Word (.docx)';
+}
+<\/script>
 </body>
 </html>`;
 }
